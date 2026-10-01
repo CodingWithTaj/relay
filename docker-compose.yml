@@ -1,0 +1,37 @@
+# Relay, PostgreSQL, and a deliberately unreliable demo service to monitor.
+#   ADMIN_TOKEN=choose-a-secret docker compose up
+# Then open http://localhost:8000
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: relay
+      POSTGRES_PASSWORD: relay
+      POSTGRES_DB: relay
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U relay"]
+      interval: 3s
+      retries: 20
+
+  relay:
+    build: .
+    ports: ["8000:8000"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://relay:relay@db:5432/relay
+      ADMIN_TOKEN: ${ADMIN_TOKEN:?Set ADMIN_TOKEN, e.g. ADMIN_TOKEN=choose-a-secret docker compose up}
+      ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
+      # The demo service lives on this private Docker network, so private
+      # addresses are allowed here. Leave this off on a public server.
+      ALLOW_PRIVATE_TARGETS: "true"
+      SEED_DEMO_URL: http://demo-target:8001
+    depends_on:
+      db: { condition: service_healthy }
+
+  demo-target:
+    build: .
+    command: ["uvicorn", "relay.demo_target:app", "--host", "0.0.0.0", "--port", "8001"]
+    healthcheck: { disable: true }
+
+volumes:
+  pgdata:
